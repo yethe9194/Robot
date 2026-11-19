@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="fr">
+    <head>
+        <meta charset="UTF-8"/>
+        <title>Robozzle</title>
+        <link rel="stylesheet" href="style.css"/>
+        </head>
+    <body>
+        <div id="app">
+            <header>
+                <h1>Robozzle</h1>
+                <div id="status">Objectifs restants : <span id="stars-count">0</span></div>
+            </header>
+            <main>
+                <!-- grille de 16x12 avec 32 pixels par case correspond à 512x384 -->
+                <canvas id="game-canvas" width="512" height="384"></canvas>
+                <div id="stack-display">
+                    <h3>Pile d'exécution</h3>
+                    <ul id="stack-list"></ul>
+                </div>
+                <aside id="control">
+                    <button id="btn-step">Etape suivante</button>
+                    <button id="btn-exec">Exécuter</button>
+                </aside>
+            </main>
+        </div>
+    <script type="module" src="./index.ts"></script>
+    </body>
+</html>
+
+

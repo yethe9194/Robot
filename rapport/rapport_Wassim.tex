@@ -1,0 +1,145 @@
+\section{Génération de mondes et résolution automatique de puzzles}
+
+Cette section présente les approches envisagées pour deux fonctionnalités que le temps de développement n'a pas permis d'implémenter : la génération procédurale de mondes valides, et la résolution automatique de puzzles par exploration de l'espace des programmes. Nous en proposons une formalisation, une analyse de complexité et une discussion sur leur adéquation à l'aspect fonctionnel du projet.
+
+\subsection{Génération de mondes}
+
+\subsubsection*{Définition formelle du problème}
+
+Un monde valide doit satisfaire les contraintes suivantes :
+\begin{itemize}
+  \item La grille est de taille $12 \times 16 = 192$ cases.
+  \item Chaque case appartient à $\{\texttt{B}, \texttt{R}, \texttt{G}, \texttt{N}\}$, la couleur \texttt{N} étant inaccessible.
+  \item Le robot est positionné sur une case accessible (non \texttt{N}).
+  \item Au moins une étoile est placée sur une case accessible, et l'ensemble des cases étoilées est atteignable depuis la position initiale du robot.
+\end{itemize}
+
+La condition d'atteignabilité est la contrainte la plus importante pour pouvoir implémenter un solveur : sans elle, on génère des puzzles insolubles par construction.
+
+\subsubsection*{Génération aléatoire naïve}
+
+L'approche la plus simple consiste à tirer chaque case uniformément dans $\{\texttt{B}, \texttt{R}, \texttt{G}, \texttt{N}\}$, à placer le robot sur une case accessible choisie au hasard, puis à rejeter tout monde ne satisfaisant pas la condition d'atteignabilité (en testant à chaque fois).
+
+\subparagraph{Complexité.}
+Soit $n = 192$ le nombre de cases. La vérification d'atteignabilité s'effectue par un BFS/DFS depuis la position initiale du robot, en $\mathcal{O}(n)$. La probabilité qu'un tirage aléatoire produise une composante connexe suffisante dépend de la densité de cases accessibles, donc de la probabilité qu'une case ne soit pas \texttt{N} qui est ${3/4}$ dans notre cas. La probabilité de rejeter un monde est donc faible, mais le nombre de tentatives avant succès est en $\mathcal{O}(1)$ en espérance puisque la probabilité $p$ qu'un monde soit valide est constante, ce qui veut dire que l'espérance de la variable aléatoire $T$, représentant le nombre de tentatives avant succès, qui est ~$E[T]=1/p$~ est également constante. La complexité globale est donc $\mathcal{O}(n)$ en moyenne.
+
+\subparagraph{Limite.}
+Cette approche génère des mondes structurellement faibles : les cases colorées sont réparties aléatoirement, sans logique de puzzle. Le programme résolvant un tel monde est généralement trivial (boucle MOVE-CALL) ou inexistant.
+
+\subsubsection*{Génération guidée par le programme}
+
+Une meilleure approche consiste à inverser la démarche :
+\begin{enumerate}
+  \item Tirer aléatoirement un programme $P$ valide (respectant les contraintes de taille).
+  \item Simuler l'exécution de $P$ depuis une position initiale pour tracer le chemin parcouru.
+  \item Construire le monde en coloriant les cases du chemin et en y plaçant des étoiles.
+\end{enumerate}
+
+Cette technique garantit par construction qu'il existe au moins un programme résolvant le puzzle généré.
+
+\subparagraph{Complexité.}
+Soit $I$ le nombre maximal d'instructions autorisées ($I = 1000$ dans notre cas). La simulation de $P$ s'effectue en $\mathcal{O}(I)$. La construction du monde à partir du chemin est en $\mathcal{O}(n)$. La complexité totale est $\mathcal{O}(I + n) = \mathcal{O}(I)$ puisque $I \gg n$ en pratique.
+
+\subsection{Résolution automatique : solveurs}
+
+Résoudre un puzzle revient à trouver un programme $P$ dans l'espace $\mathcal{P}$ de tous les programmes valides (respectant les contraintes du puzzle) tel que l'exécution de $P$ sur le monde $W$ atteint l'objectif $G$.
+
+\subsubsection*{Taille de l'espace de recherche}
+
+Soit $F$ le nombre de fonctions, $S_i$ la taille maximale de la fonction $i$, $C$ le nombre d'instructions disponibles et $K = 4$ le nombre de couleurs de condition (B, R, G, N). Chaque slot d'instruction peut accueillir $C \times K$ valeurs ou être vide. Le nombre total de programmes est :
+
+\[
+  |\mathcal{P}| = \prod_{i=1}^{F} (C \cdot K + 1)^{S_i}
+\]
+
+En l'occurrence, pour le cas typique $F = 5$, $S_i = 10$, $C = 4$ instructions de base, $K = 4$ :
+
+\[
+  |\mathcal{P}| \approx 10^{61}
+\]
+
+Cet espace est beaucoup trop grand pour une exploration exhaustive, d'où l'intérêt des heuristiques.
+
+\subsubsection*{Recherche par A*}
+
+\subparagraph{Modélisation.}
+On modélise la recherche comme un problème de plus court chemin dans un graphe d'états. Un état est un triplet $(monde, robot, pile)$, et chaque transition correspond à l'exécution d'une instruction. L'algorithme A* sélectionne à chaque étape l'état minimisant $f(s) = g(s) + h(s)$, où $g(s)$ est le coût depuis l'état initial (nombre d'instructions exécutées) et $h(s)$ une heuristique admissible.
+
+\subparagraph{Heuristique.}
+Une heuristique naturelle est la \textbf{distance de Manhattan} entre le robot et l'étoile la plus proche. En notant $\mathcal{E}$ l'ensemble des cases encore étoilées :
+
+\[
+  h(s) = \min_{(r,c)\,\in\,\mathcal{E}} \bigl(|r - r_{\mathrm{robot}}| + |c - c_{\mathrm{robot}}|\bigr)
+\]
+
+Cette heuristique est admissible car le robot avance d'au plus une case par instruction MOVE, et ne peut donc atteindre une étoile en moins de $h(s)$ pas.
+
+\subparagraph{Complexité.}
+Dans le pire cas, A* explore un nombre d'états exponentiel en la profondeur de la solution. Avec une heuristique efficace, la complexité pratique est $\mathcal{O}(m^{d/2})$ où $m$ est le nombre moyen de successeurs possibles depuis un état (ici $m = C \cdot K = 16$) et $d$ la profondeur optimale. La mémoire requise est également $\mathcal{O}(m^{d/2})$, ce qui constitue un véritable problème pour les puzzles profonds.
+
+\subparagraph{Limite.}
+A* est optimal pour trouver le \textit{programme le plus court}, mais reste inadapté aux puzzles dont la solution requiert de nombreuses instructions imbriquées, car la complexité devient exponentielle. De plus, la modélisation de l'espace d'états doit intégrer la pile d'appel pour ne pas confondre des états différents, ce qui augmente considérablement la dimension de l'espace.
+
+\subsubsection*{Algorithmes génétiques}
+
+\paragraph{Principe.}
+Les algorithmes génétiques maintiennent une \textit{population} de programmes candidats, qu'ils font évoluer par \textit{sélection}, \textit{croisement} et \textit{mutation} au fil de générations successives.
+
+\begin{enumerate}
+  \item \textbf{Encodage.} Un programme est encodé comme une chaîne de caractères : chaque instruction est représentée par un couple (type, couleur), les fonctions étant séparées par un délimiteur. Deux programmes peuvent ainsi être \textit{croisés} en échangeant des segments de leurs chaînes respectives.
+  \item \textbf{Fonction de fitness.} On évalue chaque programme en le simulant et en comptant le nombre d'étoiles collectées et en retranchant des points $\alpha$ pour les erreurs d'exécution (\textit{Out of ground}, \textit{Infinite loop}).
+        \[
+          \text{fitness}(P) = \text{étoiles collectées}(P) - \alpha \cdot \mathbf{1}[\text{erreur}(P)]
+        \]
+  \item \textbf{Sélection.} Les programmes de meilleur fitness sont sélectionnés préférentiellement pour la reproduction (par tournoi).
+  \item \textbf{Croisement.} Deux programmes $P_1, P_2$ échangent une sous-séquence d'instructions pour produire deux fils.
+  \item \textbf{Mutation.} Une instruction d'un programme est remplacée aléatoirement avec une faible probabilité $p_m$ (typiquement $p_m$ de l'ordre de $10^{-2}$).
+\end{enumerate}
+
+\paragraph{Complexité.}
+Soit $N$ la taille de la population, $G$ le nombre de générations et $I$ le coût de simulation d'un programme. La complexité par génération est $\mathcal{O}(N \cdot I)$, et la complexité totale est $\mathcal{O}(G \cdot N \cdot I)$. Si $N = 200$, $G = 1000$ et $I = \mathcal{O}(1000)$ instructions, on obtient $\mathcal{O}(2 \times 10^8)$ opérations élémentaires, ce qui est raisonnable en quelques secondes sur une machine moderne.
+
+\paragraph{Aspect fonctionnel.}
+La génération d'une population et son évolution s'expriment naturellement
+comme des transformations sur des listes immuables :
+
+\begin{verbatim}
+const nextGeneration = (population: program[]): program[] =>
+  Array.from({ length: population.length }, () =>
+    mutate(crossover(select(population), select(population)))
+  );
+\end{verbatim}
+
+Chaque génération est produite par application de fonctions pures, sans état global mutable, ce qui est cohérent avec l'aspect fonctionnel du projet.
+
+\paragraph{Limite.}
+La convergence prématurée vers un optimum local est le principal inconvénient des algorithmes génétiques. Des techniques de maintien de la diversité peuvent être envisageables.
+
+\subsubsection*{Comparaison des approches}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Algorithme} & \textbf{Optimal} & \textbf{Complet} & \textbf{Complexité temps} & \textbf{Complexité mémoire} \\
+\hline
+Exhaustif & Oui & Oui & $\mathcal{O}(|\mathcal{P}|)$ & $\mathcal{O}(|\mathcal{P}|)$ \\
+A* & Oui & Oui & $\mathcal{O}(m^{d/2})$ & $\mathcal{O}(m^{d/2})$ \\
+Génétique & Non & Non & $\mathcal{O}(G \cdot N \cdot I)$ & $\mathcal{O}(N \cdot I)$ \\
+\hline
+\end{tabular}
+\caption{Comparaison des stratégies de résolution. $m$ : nombre moyen de successeurs depuis un état, $d$ : profondeur optimale, $G$ : générations, $N$ : taille de population, $I$ : coût de simulation.}
+\end{table}
+
+En pratique, l'algorithme génétique constitue le meilleur compromis pour les puzzles de grande taille : il ne garantit pas de trouver la solution optimale, mais converge vers une solution acceptable en temps polynomial. A* reste préférable pour les puzzles de petite taille, où son optimalité est exploitable.
+
+\subsection{Bilan}
+
+Les deux fonctionnalités présentées ici, la génération de mondes et la résolution automatique, constituent des extensions du simulateur de programmes développé. Leur formalisation met en évidence plusieurs points importants :
+
+\begin{itemize}
+  \item La génération guidée par le programme est la seule approche pour produire des puzzles \textit{bien pensés}.
+  \item La taille de l'espace de recherche ($\approx 10^{61}$ programmes dans le cas général) rend l'exploration exhaustive inenvisageable ; des heuristiques sont indispensables.
+  \item Les deux algorithmes de résolution s'intègrent naturellement au paradigme fonctionnel :
+  \item Le coût prépondérant dans tous ces algorithmes est la simulation ($\mathcal{O}(I) = \mathcal{O}(1000)$ par programme), ce qui justifie le besoin de maximiser le nombre d'évaluations parallèles dans une implémentation réelle.
+\end{itemize}
